@@ -1,0 +1,183 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-deployment
+  labels:
+    app: image-recognition-webapp
+    version: v1
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: image-recognition-webapp
+  template:
+    metadata:
+      labels:
+        app: image-recognition-webapp
+        version: v1
+    spec:
+      serviceAccountName: webapp-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+      - name: webapp
+        image: registry.digitalocean.com/your-registry/webapp:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        env:
+        - name: GO_ENV
+          value: "production"
+        - name: PORT
+          value: "8080"
+        - name: METRICS_PORT
+          value: "9090"
+        - name: MODEL_PATH
+          value: "/app/models"
+        - name: UPLOAD_PATH
+          value: "/app/uploads"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: MAX_UPLOAD_SIZE
+          value: "10MB"
+        - name: TIMEOUT
+          value: "30s"
+        # DigitalOcean Spaces configuration
+        - name: SPACES_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: digitalocean-spaces
+              key: endpoint
+        - name: SPACES_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: digitalocean-spaces
+              key: bucket
+        - name: SPACES_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: digitalocean-spaces
+              key: access-key
+        - name: SPACES_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: digitalocean-spaces
+              key: secret-key
+        # Application secrets
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: webapp-secrets
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: webapp-secrets
+              key: redis-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: webapp-secrets
+              key: jwt-secret
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: webapp-secrets
+              key: api-key
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 30
+        volumeMounts:
+        - name: model-cache
+          mountPath: /app/models
+        - name: upload-storage
+          mountPath: /app/uploads
+        - name: tmp-storage
+          mountPath: /tmp
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: model-cache
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: upload-storage
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: tmp-storage
+        emptyDir:
+          sizeLimit: 100Mi
+      nodeSelector:
+        digitalocean.com/node-pool-name: "worker-pool"
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - image-recognition-webapp
+              topologyKey: kubernetes.io/hostname

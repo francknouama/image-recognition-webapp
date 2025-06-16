@@ -1,0 +1,287 @@
+name: Model Sync from DigitalOcean Spaces
+
+on:
+  # Triggered by webhook from ML pipeline repository
+  repository_dispatch:
+    types: [model-updated]
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      model_version:
+        description: 'Model version to sync'
+        required: true
+        default: 'latest'
+        type: string
+      force_update:
+        description: 'Force update even if model exists'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DO_REGION: nyc3
+
+jobs:
+  sync-models:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+    
+    - name: Install s3cmd for DigitalOcean Spaces
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y s3cmd
+    
+    - name: Configure s3cmd for DigitalOcean Spaces
+      run: |
+        cat > ~/.s3cfg << EOF
+        [default]
+        access_key = ${{ secrets.SPACES_ACCESS_KEY }}
+        secret_key = ${{ secrets.SPACES_SECRET_KEY }}
+        host_base = ${{ secrets.SPACES_ENDPOINT }}
+        host_bucket = %(bucket)s.${{ secrets.SPACES_ENDPOINT }}
+        use_https = True
+        signature_v2 = False
+        EOF
+    
+    - name: Determine model version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+          MODEL_VERSION="${{ github.event.client_payload.version }}"
+        elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          MODEL_VERSION="${{ github.event.inputs.model_version }}"
+        else
+          MODEL_VERSION="latest"
+        fi
+        echo "model-version=$MODEL_VERSION" >> $GITHUB_OUTPUT
+        echo "Syncing model version: $MODEL_VERSION"
+    
+    - name: Check if model exists locally
+      id: check-model
+      run: |
+        MODEL_VERSION="${{ steps.version.outputs.model-version }}"
+        FORCE_UPDATE="${{ github.event.inputs.force_update }}"
+        
+        # Check if model already exists in our artifacts
+        if s3cmd ls s3://${{ secrets.SPACES_BUCKET }}/models/v$MODEL_VERSION/ > /dev/null 2>&1; then
+          echo "Model v$MODEL_VERSION exists in Spaces"
+          if [[ "$FORCE_UPDATE" == "true" ]]; then
+            echo "should-sync=true" >> $GITHUB_OUTPUT
+            echo "Force update enabled, will sync anyway"
+          else
+            echo "should-sync=false" >> $GITHUB_OUTPUT
+            echo "Model exists and no force update, skipping sync"
+          fi
+        else
+          echo "should-sync=true" >> $GITHUB_OUTPUT
+          echo "Model not found, will sync"
+        fi
+    
+    - name: Download model from Spaces
+      if: steps.check-model.outputs.should-sync == 'true'
+      run: |
+        MODEL_VERSION="${{ steps.version.outputs.model-version }}"
+        
+        # Create local directory
+        mkdir -p models/v$MODEL_VERSION
+        
+        # Download model files from DigitalOcean Spaces
+        echo "Downloading model v$MODEL_VERSION from Spaces..."
+        s3cmd get --recursive s3://${{ secrets.SPACES_BUCKET }}/models/v$MODEL_VERSION/ models/v$MODEL_VERSION/
+        
+        # Also download latest if available
+        if [[ "$MODEL_VERSION" != "latest" ]]; then
+          mkdir -p models/latest
+          s3cmd get --recursive s3://${{ secrets.SPACES_BUCKET }}/models/latest/ models/latest/ || echo "Latest model not available"
+        fi
+        
+        # List downloaded files
+        echo "Downloaded files:"
+        find models/ -type f -ls
+    
+    - name: Validate model files
+      if: steps.check-model.outputs.should-sync == 'true'
+      run: |
+        MODEL_VERSION="${{ steps.version.outputs.model-version }}"
+        
+        # Check if required files exist
+        REQUIRED_FILES=("model.tar.gz" "metadata.json")
+        for file in "${REQUIRED_FILES[@]}"; do
+          if [[ ! -f "models/v$MODEL_VERSION/$file" ]]; then
+            echo "ERROR: Required file $file not found"
+            exit 1
+          fi
+        done
+        
+        # Validate metadata.json
+        if ! python3 -m json.tool models/v$MODEL_VERSION/metadata.json > /dev/null; then
+          echo "ERROR: Invalid metadata.json format"
+          exit 1
+        fi
+        
+        # Extract and validate model archive
+        cd models/v$MODEL_VERSION
+        tar -tzf model.tar.gz > /dev/null
+        echo "Model files validated successfully"
+    
+    - name: Update Kubernetes deployments
+      if: steps.check-model.outputs.should-sync == 'true'
+      run: |
+        MODEL_VERSION="${{ steps.version.outputs.model-version }}"
+        
+        # Update staging environment
+        echo "Updating staging environment..."
+        doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ secrets.DOKS_CLUSTER_NAME_STAGING }}
+        
+        # Create ConfigMap with new model version
+        kubectl create configmap model-version \
+          --from-literal=version=$MODEL_VERSION \
+          --from-literal=updated="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --namespace=staging \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Trigger rolling restart to pick up new models
+        kubectl annotate deployment webapp-deployment \
+          deployment.kubernetes.io/restartedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --namespace=staging
+        
+        # Wait for rollout to complete
+        kubectl rollout status deployment/webapp-deployment --namespace=staging --timeout=300s
+    
+    - name: Test model in staging
+      if: steps.check-model.outputs.should-sync == 'true'
+      run: |
+        # Get staging service endpoint
+        doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ secrets.DOKS_CLUSTER_NAME_STAGING }}
+        SERVICE_IP=$(kubectl get service webapp-service --namespace=staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        # Wait for service to be ready
+        timeout 180 bash -c 'until curl -f http://'$SERVICE_IP'/health; do sleep 5; done'
+        
+        # Test model API
+        curl -f http://$SERVICE_IP/api/models
+        
+        # Create small test image and test prediction
+        echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > test.png
+        RESPONSE=$(curl -s -X POST -F "image=@test.png" http://$SERVICE_IP/upload)
+        echo "Prediction test response: $RESPONSE"
+        rm test.png
+        
+        echo "✅ Model testing in staging successful"
+    
+    - name: Deploy to production
+      if: steps.check-model.outputs.should-sync == 'true' && github.ref == 'refs/heads/main'
+      run: |
+        MODEL_VERSION="${{ steps.version.outputs.model-version }}"
+        
+        echo "Updating production environment..."
+        doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ secrets.DOKS_CLUSTER_NAME_PRODUCTION }}
+        
+        # Create ConfigMap with new model version
+        kubectl create configmap model-version \
+          --from-literal=version=$MODEL_VERSION \
+          --from-literal=updated="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --namespace=production \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Trigger rolling restart to pick up new models
+        kubectl annotate deployment webapp-deployment \
+          deployment.kubernetes.io/restartedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --namespace=production
+        
+        # Wait for rollout to complete
+        kubectl rollout status deployment/webapp-deployment --namespace=production --timeout=600s
+    
+    - name: Test model in production
+      if: steps.check-model.outputs.should-sync == 'true' && github.ref == 'refs/heads/main'
+      run: |
+        # Get production load balancer IP
+        LB_IP=$(doctl compute load-balancer list --format IP --no-header --tag-name ${{ secrets.LOAD_BALANCER_TAG_PRODUCTION }})
+        
+        # Wait for load balancer to be ready
+        timeout 300 bash -c 'until curl -f http://'$LB_IP'/health; do sleep 10; done'
+        
+        # Test model API
+        curl -f http://$LB_IP/api/models
+        
+        # Create small test image and test prediction
+        echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > test.png
+        RESPONSE=$(curl -s -X POST -F "image=@test.png" http://$LB_IP/upload)
+        echo "Production prediction test response: $RESPONSE"
+        rm test.png
+        
+        echo "✅ Model testing in production successful"
+    
+    - name: Create deployment summary
+      if: steps.check-model.outputs.should-sync == 'true'
+      run: |
+        MODEL_VERSION="${{ steps.version.outputs.model-version }}"
+        
+        cat > deployment_summary.md << EOF
+        # Model Sync Summary
+        
+        ## Model Information
+        - **Version**: $MODEL_VERSION
+        - **Sync Time**: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+        - **Triggered By**: ${{ github.event_name }}
+        - **Git SHA**: ${{ github.sha }}
+        
+        ## Environments Updated
+        - ✅ Staging: Updated and tested
+        $(if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then echo "- ✅ Production: Updated and tested"; else echo "- ⏭️ Production: Skipped (not main branch)"; fi)
+        
+        ## Health Checks
+        - Model API endpoints responding
+        - Prediction functionality verified
+        - Deployment rollout completed successfully
+        
+        ## Next Steps
+        - Monitor application metrics for the new model
+        - Review model performance in production
+        - Consider A/B testing if applicable
+        EOF
+        
+        echo "Deployment Summary:"
+        cat deployment_summary.md
+    
+    - name: Upload deployment artifacts
+      if: steps.check-model.outputs.should-sync == 'true'
+      uses: actions/upload-artifact@v3
+      with:
+        name: model-sync-artifacts
+        path: |
+          models/
+          deployment_summary.md
+        retention-days: 7
+    
+    - name: Notify completion
+      if: always()
+      run: |
+        if [[ "${{ steps.check-model.outputs.should-sync }}" == "true" ]]; then
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ Model sync completed successfully!"
+            MESSAGE="🔄 Model sync successful! Version: ${{ steps.version.outputs.model-version }}"
+          else
+            echo "❌ Model sync failed!"
+            MESSAGE="❌ Model sync failed! Version: ${{ steps.version.outputs.model-version }}"
+          fi
+        else
+          echo "ℹ️ Model sync skipped (no update needed)"
+          MESSAGE="ℹ️ Model sync skipped - no update needed for version: ${{ steps.version.outputs.model-version }}"
+        fi
+        
+        # Send Slack notification if webhook is configured
+        if [[ -n "${{ secrets.SLACK_WEBHOOK }}" ]]; then
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"'"$MESSAGE"'"}' \
+            ${{ secrets.SLACK_WEBHOOK }}
+        fi

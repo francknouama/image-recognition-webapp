@@ -1,0 +1,303 @@
+name: Deploy to DigitalOcean
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  DO_REGION: nyc3
+  REGISTRY: registry.digitalocean.com
+  IMAGE_NAME: image-recognition-webapp
+
+jobs:
+  # Build and push to DigitalOcean Container Registry
+  build-image:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.image.outputs.tag }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+    
+    - name: Log in to DigitalOcean Container Registry
+      run: doctl registry login --expiry-seconds 1200
+    
+    - name: Extract image metadata
+      id: image
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          IMAGE_TAG=${GITHUB_REF#refs/tags/}
+        else
+          IMAGE_TAG=${GITHUB_SHA::7}
+        fi
+        echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "full-image=${{ env.REGISTRY }}/${{ secrets.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
+    
+    - name: Build and push Docker image
+      run: |
+        docker build -t ${{ steps.image.outputs.full-image }} .
+        docker push ${{ steps.image.outputs.full-image }}
+        
+        # Also tag as latest for main branch
+        if [[ $GITHUB_REF == 'refs/heads/main' ]]; then
+          docker tag ${{ steps.image.outputs.full-image }} ${{ env.REGISTRY }}/${{ secrets.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ secrets.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:latest
+        fi
+
+  # Deploy to staging environment
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+    
+    - name: Setup kubectl for DOKS
+      run: |
+        doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ secrets.DOKS_CLUSTER_NAME_STAGING }}
+    
+    - name: Create namespace if not exists
+      run: |
+        kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+    
+    - name: Apply Kubernetes secrets
+      run: |
+        # Create DigitalOcean Spaces secret
+        kubectl create secret generic digitalocean-spaces \
+          --from-literal=access-key="${{ secrets.SPACES_ACCESS_KEY }}" \
+          --from-literal=secret-key="${{ secrets.SPACES_SECRET_KEY }}" \
+          --from-literal=endpoint="${{ secrets.SPACES_ENDPOINT }}" \
+          --from-literal=bucket="${{ secrets.SPACES_BUCKET }}" \
+          --namespace=staging \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Create application secrets
+        kubectl create secret generic webapp-secrets \
+          --from-literal=database-url="${{ secrets.DATABASE_URL_STAGING }}" \
+          --from-literal=redis-url="${{ secrets.REDIS_URL_STAGING }}" \
+          --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
+          --from-literal=api-key="${{ secrets.API_KEY }}" \
+          --namespace=staging \
+          --dry-run=client -o yaml | kubectl apply -f -
+    
+    - name: Deploy to DOKS staging
+      run: |
+        # Replace image tag in deployment
+        sed -i 's|registry.digitalocean.com/your-registry/webapp:latest|${{ env.REGISTRY }}/${{ secrets.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build-image.outputs.image-tag }}|' k8s/webapp-deployment.yaml
+        
+        # Apply manifests
+        kubectl apply -f k8s/webapp-deployment.yaml --namespace=staging
+        kubectl apply -f k8s/webapp-service.yaml --namespace=staging
+        kubectl apply -f k8s/webapp-hpa.yaml --namespace=staging
+        
+        # Wait for deployment to complete
+        kubectl rollout status deployment/webapp-deployment --namespace=staging --timeout=600s
+    
+    - name: Run smoke tests
+      run: |
+        # Get service endpoint
+        SERVICE_IP=$(kubectl get service webapp-service --namespace=staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        # Wait for load balancer
+        timeout 300 bash -c 'until curl -f http://'$SERVICE_IP'/health; do sleep 10; done'
+        
+        # Run basic health checks
+        curl -f http://$SERVICE_IP/health
+        curl -f http://$SERVICE_IP/api/health
+        curl -f http://$SERVICE_IP/api/models
+
+  # Deploy to production environment
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [build-image, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+    
+    - name: Setup kubectl for DOKS
+      run: |
+        doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ secrets.DOKS_CLUSTER_NAME_PRODUCTION }}
+    
+    - name: Create namespace if not exists
+      run: |
+        kubectl create namespace production --dry-run=client -o yaml | kubectl apply -f -
+    
+    - name: Apply Kubernetes secrets
+      run: |
+        # Create DigitalOcean Spaces secret
+        kubectl create secret generic digitalocean-spaces \
+          --from-literal=access-key="${{ secrets.SPACES_ACCESS_KEY }}" \
+          --from-literal=secret-key="${{ secrets.SPACES_SECRET_KEY }}" \
+          --from-literal=endpoint="${{ secrets.SPACES_ENDPOINT }}" \
+          --from-literal=bucket="${{ secrets.SPACES_BUCKET }}" \
+          --namespace=production \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Create application secrets
+        kubectl create secret generic webapp-secrets \
+          --from-literal=database-url="${{ secrets.DATABASE_URL_PRODUCTION }}" \
+          --from-literal=redis-url="${{ secrets.REDIS_URL_PRODUCTION }}" \
+          --from-literal=jwt-secret="${{ secrets.JWT_SECRET }}" \
+          --from-literal=api-key="${{ secrets.API_KEY }}" \
+          --namespace=production \
+          --dry-run=client -o yaml | kubectl apply -f -
+    
+    - name: Apply resource quotas and limits
+      run: |
+        cat > resource-quota.yaml << EOF
+        apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: production-quota
+          namespace: production
+        spec:
+          hard:
+            requests.cpu: "8"
+            requests.memory: 16Gi
+            limits.cpu: "16"
+            limits.memory: 32Gi
+            pods: "20"
+            persistentvolumeclaims: "10"
+            services: "10"
+        EOF
+        kubectl apply -f resource-quota.yaml
+    
+    - name: Deploy to DOKS production
+      run: |
+        # Replace image tag in deployment
+        sed -i 's|registry.digitalocean.com/your-registry/webapp:latest|${{ env.REGISTRY }}/${{ secrets.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build-image.outputs.image-tag }}|' k8s/webapp-deployment.yaml
+        
+        # Apply manifests
+        kubectl apply -f k8s/webapp-deployment.yaml --namespace=production
+        kubectl apply -f k8s/webapp-service.yaml --namespace=production
+        kubectl apply -f k8s/webapp-hpa.yaml --namespace=production
+        
+        # Wait for deployment to complete
+        kubectl rollout status deployment/webapp-deployment --namespace=production --timeout=600s
+    
+    - name: Verify production deployment
+      run: |
+        kubectl get pods --namespace=production
+        kubectl get services --namespace=production
+        kubectl describe deployment webapp-deployment --namespace=production
+    
+    - name: Run production health checks
+      run: |
+        # Get load balancer IP
+        LB_IP=$(doctl compute load-balancer list --format IP --no-header --tag-name ${{ secrets.LOAD_BALANCER_TAG_PRODUCTION }})
+        
+        # Wait for load balancer to be ready
+        timeout 300 bash -c 'until curl -f http://'$LB_IP'/health; do sleep 10; done'
+        
+        # Comprehensive health checks
+        curl -f http://$LB_IP/health
+        curl -f http://$LB_IP/api/health
+        curl -f http://$LB_IP/api/models
+        
+        # Test file upload with small test image
+        echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > test.png
+        curl -X POST -F "image=@test.png" http://$LB_IP/upload
+        rm test.png
+    
+    - name: Update model cache
+      run: |
+        # Trigger model sync from DigitalOcean Spaces
+        kubectl exec -n production deployment/webapp-deployment -- /app/scripts/sync-models.sh || true
+
+  # Rollback deployment if needed
+  rollback:
+    runs-on: ubuntu-latest
+    if: failure() && (needs.deploy-staging.result == 'failure' || needs.deploy-production.result == 'failure')
+    needs: [deploy-staging, deploy-production]
+    
+    steps:
+    - name: Install doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+    
+    - name: Rollback staging
+      if: needs.deploy-staging.result == 'failure'
+      run: |
+        doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ secrets.DOKS_CLUSTER_NAME_STAGING }}
+        kubectl rollout undo deployment/webapp-deployment --namespace=staging
+        kubectl rollout status deployment/webapp-deployment --namespace=staging --timeout=300s
+    
+    - name: Rollback production
+      if: needs.deploy-production.result == 'failure'
+      run: |
+        doctl kubernetes cluster kubeconfig save --expiry-seconds 600 ${{ secrets.DOKS_CLUSTER_NAME_PRODUCTION }}
+        kubectl rollout undo deployment/webapp-deployment --namespace=production
+        kubectl rollout status deployment/webapp-deployment --namespace=production --timeout=300s
+
+  # Notification
+  notify:
+    runs-on: ubuntu-latest
+    needs: [build-image, deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+    - name: Notify success
+      if: needs.deploy-production.result == 'success' || needs.deploy-staging.result == 'success'
+      run: |
+        ENVIRONMENT="staging"
+        if [[ "${{ needs.deploy-production.result }}" == "success" ]]; then
+          ENVIRONMENT="production"
+        fi
+        
+        echo "✅ Deployment to $ENVIRONMENT successful!"
+        echo "Image: ${{ env.REGISTRY }}/${{ secrets.REGISTRY_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build-image.outputs.image-tag }}"
+        echo "Git SHA: ${{ github.sha }}"
+        
+        # Add Slack notification here if webhook is configured
+        if [[ -n "${{ secrets.SLACK_WEBHOOK }}" ]]; then
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"🚀 Webapp deployed to '$ENVIRONMENT' successfully!\nImage: ${{ needs.build-image.outputs.image-tag }}\nCommit: ${{ github.sha }}"}' \
+            ${{ secrets.SLACK_WEBHOOK }}
+        fi
+    
+    - name: Notify failure
+      if: needs.deploy-staging.result == 'failure' || needs.deploy-production.result == 'failure'
+      run: |
+        echo "❌ Deployment failed!"
+        echo "Check the workflow logs for details."
+        
+        # Add Slack notification here if webhook is configured
+        if [[ -n "${{ secrets.SLACK_WEBHOOK }}" ]]; then
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"❌ Webapp deployment failed!\nCommit: ${{ github.sha }}\nCheck GitHub Actions for details."}' \
+            ${{ secrets.SLACK_WEBHOOK }}
+        fi
