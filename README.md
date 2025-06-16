@@ -326,10 +326,13 @@ The application provides comprehensive health checks:
 
 The CI/CD pipeline requires the following GitHub Secrets to be configured in your repository settings:
 
-#### Required Secrets for Full Pipeline
+#### Required Secrets for App Platform Deployment
 
-- `DIGITALOCEAN_ACCESS_TOKEN`: Your DigitalOcean API token for registry access
-- `REGISTRY_NAME`: Your DigitalOcean Container Registry name
+- `DIGITALOCEAN_ACCESS_TOKEN`: Your DigitalOcean API token
+- `SPACES_ACCESS_KEY`: DigitalOcean Spaces access key for model storage
+- `SPACES_SECRET_KEY`: DigitalOcean Spaces secret key
+- `SPACES_ENDPOINT`: Spaces endpoint (e.g., `nyc3.digitaloceanspaces.com`)
+- `SPACES_BUCKET`: Spaces bucket name (e.g., `image-recognition-models`)
 
 #### Pipeline Stages
 
@@ -345,18 +348,18 @@ The CI/CD pipeline requires the following GitHub Secrets to be configured in you
    - Tests container health
    - No secrets required
 
-3. **Build and Push Stage** (only on main branch):
-   - Requires `DIGITALOCEAN_ACCESS_TOKEN` and `REGISTRY_NAME`
-   - Pushes to DigitalOcean Container Registry
+3. **App Platform Deployment** (only on main branch):
+   - Creates or updates App Platform application
+   - Includes managed PostgreSQL and Redis databases
+   - Runs health checks after deployment
+   - Provides deployment summary with app URL
 
-### Running Without Registry Access
+### Running Without App Platform Access
 
-If you don't have DigitalOcean Container Registry access, the pipeline will still:
+If you don't have DigitalOcean access configured, the pipeline will still:
 - Run all tests and quality checks
 - Build and scan Docker images locally
-- Only fail on the registry push step (which only runs on main branch)
-
-To disable registry push entirely, comment out the `build-and-push` job in `.github/workflows/ci.yml`.
+- Only fail on the App Platform deployment step (which only runs on main branch)
 
 ## Testing
 
