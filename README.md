@@ -287,6 +287,44 @@ The application provides comprehensive health checks:
 - Container security scanning in CI/CD
 - Regular dependency updates
 
+## CI/CD Configuration
+
+### GitHub Actions Setup
+
+The CI/CD pipeline requires the following GitHub Secrets to be configured in your repository settings:
+
+#### Required Secrets for Full Pipeline
+
+- `DIGITALOCEAN_ACCESS_TOKEN`: Your DigitalOcean API token for registry access
+- `REGISTRY_NAME`: Your DigitalOcean Container Registry name
+
+#### Pipeline Stages
+
+1. **Test Stage** (runs on all branches):
+   - Go linting and formatting checks
+   - Unit tests with coverage
+   - Security scanning with gosec
+   - No secrets required
+
+2. **Docker Stage** (runs on all branches):
+   - Builds Docker image
+   - Runs Trivy vulnerability scan
+   - Tests container health
+   - No secrets required
+
+3. **Build and Push Stage** (only on main branch):
+   - Requires `DIGITALOCEAN_ACCESS_TOKEN` and `REGISTRY_NAME`
+   - Pushes to DigitalOcean Container Registry
+
+### Running Without Registry Access
+
+If you don't have DigitalOcean Container Registry access, the pipeline will still:
+- Run all tests and quality checks
+- Build and scan Docker images locally
+- Only fail on the registry push step (which only runs on main branch)
+
+To disable registry push entirely, comment out the `build-and-push` job in `.github/workflows/ci.yml`.
+
 ## Testing
 
 ### Running Tests
