@@ -151,8 +151,52 @@ jobs:
           echo "No existing app found"
         fi
     
+    - name: Check required secrets
+      id: check-secrets
+      run: |
+        echo "Checking required secrets for App Platform deployment..."
+        
+        MISSING_SECRETS=()
+        
+        if [ -z "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}" ]; then
+          MISSING_SECRETS+=("DIGITALOCEAN_ACCESS_TOKEN")
+        fi
+        
+        if [ -z "${{ secrets.SPACES_ENDPOINT }}" ]; then
+          MISSING_SECRETS+=("SPACES_ENDPOINT")
+        fi
+        
+        if [ -z "${{ secrets.SPACES_BUCKET }}" ]; then
+          MISSING_SECRETS+=("SPACES_BUCKET")
+        fi
+        
+        if [ -z "${{ secrets.SPACES_ACCESS_KEY }}" ]; then
+          MISSING_SECRETS+=("SPACES_ACCESS_KEY")
+        fi
+        
+        if [ -z "${{ secrets.SPACES_SECRET_KEY }}" ]; then
+          MISSING_SECRETS+=("SPACES_SECRET_KEY")
+        fi
+        
+        if [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
+          echo "❌ Missing required GitHub secrets:"
+          printf '   - %s\n' "${MISSING_SECRETS[@]}"
+          echo ""
+          echo "📋 To configure secrets, go to:"
+          echo "   https://github.com/${{ github.repository }}/settings/secrets/actions"
+          echo ""
+          echo "📖 Setup guide: ./scripts/setup-app-platform.sh"
+          echo ""
+          echo "⏭️  Skipping App Platform deployment due to missing secrets."
+          echo "continue-deployment=false" >> $GITHUB_OUTPUT
+        else
+          echo "✅ All required secrets are configured"
+          echo "continue-deployment=true" >> $GITHUB_OUTPUT
+        fi
+    
     - name: Create App Platform app (first time)
-      if: steps.check-app.outputs.app-exists == 'false'
+      if: steps.check-app.outputs.app-exists == 'false' && steps.check-secrets.outputs.continue-deployment == 'true'
+      id: create-app
       run: |
         echo "Creating new App Platform application..."
         
@@ -249,7 +293,7 @@ jobs:
         echo "app-id=$APP_ID" >> $GITHUB_OUTPUT
     
     - name: Trigger deployment for existing app
-      if: steps.check-app.outputs.app-exists == 'true'
+      if: steps.check-app.outputs.app-exists == 'true' && steps.check-secrets.outputs.continue-deployment == 'true'
       run: |
         APP_ID="${{ steps.check-app.outputs.app-id }}"
         echo "Triggering deployment for existing app: $APP_ID"
@@ -258,6 +302,7 @@ jobs:
         doctl apps create-deployment $APP_ID
     
     - name: Wait for deployment
+      if: steps.check-secrets.outputs.continue-deployment == 'true'
       run: |
         if [ "${{ steps.check-app.outputs.app-exists }}" = "false" ]; then
           APP_ID=$(doctl apps list --format ID,Name --no-header | grep "image-recognition-webapp" | awk '{print $1}')
@@ -291,6 +336,7 @@ jobs:
         echo "🚀 Application deployed at: $APP_URL"
     
     - name: Run health checks
+      if: steps.check-secrets.outputs.continue-deployment == 'true'
       run: |
         if [ "${{ steps.check-app.outputs.app-exists }}" = "false" ]; then
           APP_ID=$(doctl apps list --format ID,Name --no-header | grep "image-recognition-webapp" | awk '{print $1}')
@@ -319,6 +365,7 @@ jobs:
         echo "✅ Basic health checks completed"
     
     - name: Create deployment summary
+      if: steps.check-secrets.outputs.continue-deployment == 'true'
       run: |
         if [ "${{ steps.check-app.outputs.app-exists }}" = "false" ]; then
           APP_ID=$(doctl apps list --format ID,Name --no-header | grep "image-recognition-webapp" | awk '{print $1}')
@@ -343,6 +390,33 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### App Platform Console" >> $GITHUB_STEP_SUMMARY
         echo "View logs and metrics in the [DigitalOcean Console](https://cloud.digitalocean.com/apps/$APP_ID)"
+    
+    - name: Deployment guidance for missing secrets
+      if: steps.check-secrets.outputs.continue-deployment == 'false'
+      run: |
+        echo "## ⚠️ App Platform Deployment Skipped" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "App Platform deployment was skipped because required GitHub secrets are not configured." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Quick Setup" >> $GITHUB_STEP_SUMMARY
+        echo "1. **Run the setup script locally:**" >> $GITHUB_STEP_SUMMARY
+        echo '   ```bash' >> $GITHUB_STEP_SUMMARY
+        echo '   ./scripts/setup-app-platform.sh' >> $GITHUB_STEP_SUMMARY
+        echo '   ```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "2. **Configure the GitHub secrets shown by the script**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "3. **Re-run this workflow or push to main branch**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Manual Setup" >> $GITHUB_STEP_SUMMARY
+        echo "Configure these secrets in [Repository Settings](https://github.com/${{ github.repository }}/settings/secrets/actions):" >> $GITHUB_STEP_SUMMARY
+        echo "- \`DIGITALOCEAN_ACCESS_TOKEN\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`SPACES_ENDPOINT\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`SPACES_BUCKET\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`SPACES_ACCESS_KEY\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`SPACES_SECRET_KEY\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📖 **[Complete Setup Guide](docs/APP_PLATFORM_DEPLOYMENT.md)**" >> $GITHUB_STEP_SUMMARY
 
   # Performance testing
   performance:
