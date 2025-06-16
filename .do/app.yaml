@@ -1,0 +1,126 @@
+name: image-recognition-webapp
+region: nyc
+services:
+- name: webapp
+  source_dir: /
+  github:
+    repo: francknouama/image-recognition-webapp
+    branch: main
+    deploy_on_push: true
+  run_command: ./main
+  environment_slug: go
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 8080
+  health_check:
+    http_path: /health
+    initial_delay_seconds: 30
+    period_seconds: 10
+    timeout_seconds: 5
+    success_threshold: 1
+    failure_threshold: 3
+  routes:
+  - path: /
+  envs:
+  - key: ENVIRONMENT
+    value: production
+  - key: PORT
+    value: "8080"
+  - key: GO_ENV
+    value: production
+  - key: LOG_LEVEL
+    value: info
+  - key: UPLOAD_MAX_SIZE
+    value: "10485760"
+  - key: UPLOAD_ALLOWED_TYPES
+    value: "image/jpeg,image/png,image/webp"
+  - key: UPLOAD_TEMP_DIR
+    value: "/tmp/uploads"
+  - key: MODEL_CACHE_PATH
+    value: "/tmp/models"
+  - key: SPACES_ENDPOINT
+    value: ${SPACES_ENDPOINT}
+    scope: RUN_TIME
+    type: SECRET
+  - key: SPACES_BUCKET
+    value: ${SPACES_BUCKET}
+    scope: RUN_TIME
+    type: SECRET
+  - key: SPACES_ACCESS_KEY
+    value: ${SPACES_ACCESS_KEY}
+    scope: RUN_TIME
+    type: SECRET
+  - key: SPACES_SECRET_KEY
+    value: ${SPACES_SECRET_KEY}
+    scope: RUN_TIME
+    type: SECRET
+  - key: DATABASE_URL
+    value: ${webapp-db.DATABASE_URL}
+    scope: RUN_TIME
+  - key: REDIS_URL
+    value: ${webapp-redis.DATABASE_URL}
+    scope: RUN_TIME
+
+databases:
+- engine: PG
+  name: webapp-db
+  num_nodes: 1
+  size: db-s-dev-database
+  version: "15"
+
+- engine: REDIS
+  name: webapp-redis
+  num_nodes: 1
+  size: db-s-dev-database
+  version: "7"
+
+static_sites:
+- name: webapp-static
+  source_dir: /web/static
+  github:
+    repo: francknouama/image-recognition-webapp
+    branch: main
+    deploy_on_push: true
+  routes:
+  - path: /static
+
+workers:
+- name: model-sync
+  source_dir: /
+  github:
+    repo: francknouama/image-recognition-webapp
+    branch: main
+    deploy_on_push: true
+  run_command: ./scripts/model-sync-worker.sh
+  environment_slug: go
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  envs:
+  - key: WORKER_TYPE
+    value: model-sync
+  - key: SYNC_INTERVAL
+    value: "3600"
+  - key: SPACES_ENDPOINT
+    value: ${SPACES_ENDPOINT}
+    scope: RUN_TIME
+    type: SECRET
+  - key: SPACES_BUCKET
+    value: ${SPACES_BUCKET}
+    scope: RUN_TIME
+    type: SECRET
+  - key: SPACES_ACCESS_KEY
+    value: ${SPACES_ACCESS_KEY}
+    scope: RUN_TIME
+    type: SECRET
+  - key: SPACES_SECRET_KEY
+    value: ${SPACES_SECRET_KEY}
+    scope: RUN_TIME
+    type: SECRET
+
+alerts:
+- rule: CPU_UTILIZATION
+  disabled: false
+- rule: MEM_UTILIZATION
+  disabled: false
+- rule: RESTART_COUNT
+  disabled: false

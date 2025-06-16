@@ -209,6 +209,39 @@ models/
 
 ## Deployment
 
+### DigitalOcean App Platform (Recommended)
+
+The easiest and most cost-effective deployment option (~$12-25/month):
+
+```bash
+# Quick setup with automation script
+./scripts/setup-app-platform.sh
+
+# Choose option 4 (Do everything)
+```
+
+**Features:**
+- Auto-deployment on push to main
+- Managed PostgreSQL and Redis databases
+- SSL certificates and custom domains
+- Built-in monitoring and scaling
+- No infrastructure management needed
+
+📖 **[Complete App Platform Guide](docs/APP_PLATFORM_DEPLOYMENT.md)**
+
+### DigitalOcean Kubernetes (Advanced)
+
+For full control and scalability (~$36-100+/month):
+
+```bash
+# Setup Kubernetes cluster and databases
+./scripts/setup-digitalocean.sh
+
+# Choose option 5 (Do everything)
+```
+
+📖 **[Complete Kubernetes Guide](docs/DIGITALOCEAN_SETUP.md)**
+
 ### Docker Deployment
 
 ```bash
