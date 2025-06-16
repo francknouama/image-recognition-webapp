@@ -78,6 +78,7 @@ func TestMockTensorFlowGetModel(t *testing.T) {
 
 	if model == nil {
 		t.Error("Expected model to be returned")
+		return
 	}
 
 	if model.Info.ID != "test_model" {
@@ -193,8 +194,12 @@ func TestMockTensorFlowClose(t *testing.T) {
 	service := NewTensorFlowService(cfg)
 	
 	// Load multiple models
-	service.LoadModel("./testdata/demo_model1", "test_model1")
-	service.LoadModel("./testdata/demo_model2", "test_model2")
+	if err := service.LoadModel("./testdata/demo_model1", "test_model1"); err != nil {
+		t.Fatalf("Failed to load model1: %v", err)
+	}
+	if err := service.LoadModel("./testdata/demo_model2", "test_model2"); err != nil {
+		t.Fatalf("Failed to load model2: %v", err)
+	}
 
 	// Verify models exist
 	models := service.ListModels()

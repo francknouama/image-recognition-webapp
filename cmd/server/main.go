@@ -35,7 +35,10 @@ func main() {
 	imageService := services.NewImageService(cfg)
 	modelService := services.NewModelService(cfg)
 	tensorFlowService := services.NewTensorFlowService(cfg)
-	fileManager := services.NewFileManager(cfg)
+	fileManager, err := services.NewFileManager(cfg)
+	if err != nil {
+		logrus.Fatalf("Failed to create file manager: %v", err)
+	}
 	
 	// Ensure all directories exist
 	if err := fileManager.EnsureDirectories(); err != nil {

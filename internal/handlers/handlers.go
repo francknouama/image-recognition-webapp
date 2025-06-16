@@ -66,7 +66,10 @@ func (h *Handler) Index(c *gin.Context) {
 	
 	template := templates.Index(stats)
 	c.Header("Content-Type", "text/html")
-	template.Render(c.Request.Context(), c.Writer)
+	if err := template.Render(c.Request.Context(), c.Writer); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to render template"})
+		return
+	}
 }
 
 // UploadPage serves the upload page
@@ -74,7 +77,10 @@ func (h *Handler) UploadPage(c *gin.Context) {
 	template := templates.Upload()
 	
 	c.Header("Content-Type", "text/html")
-	template.Render(c.Request.Context(), c.Writer)
+	if err := template.Render(c.Request.Context(), c.Writer); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to render template"})
+		return
+	}
 }
 
 // Upload handles image upload and prediction
@@ -93,7 +99,11 @@ func (h *Handler) Upload(c *gin.Context) {
 			"No image file provided", err.Error())
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			h.logger.Error("Failed to close file", "error", err)
+		}
+	}()
 
 	// Process image
 	metadata, processedData, err := h.imageService.ProcessImage(file, header)
@@ -226,7 +236,10 @@ func (h *Handler) StatusPage(c *gin.Context) {
 	template := templates.Status(*health)
 	
 	c.Header("Content-Type", "text/html")
-	template.Render(c.Request.Context(), c.Writer)
+	if err := template.Render(c.Request.Context(), c.Writer); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to render template"})
+		return
+	}
 }
 
 // HealthCheck provides basic health check
@@ -289,7 +302,9 @@ func (h *Handler) respondError(c *gin.Context, statusCode int, errorCode, messag
 		// Return HTMX-compatible error response using TEMPL
 		template := templates.UploadError(message)
 		c.Header("Content-Type", "text/html")
-		template.Render(c.Request.Context(), c.Writer)
+		if err := template.Render(c.Request.Context(), c.Writer); err != nil {
+			h.logger.Error("Failed to render error template", "error", err)
+		}
 		return
 	}
 
@@ -301,7 +316,10 @@ func (h *Handler) renderPredictionResults(c *gin.Context, result *models.Predict
 	template := templates.UploadResults(*result)
 	
 	c.Header("Content-Type", "text/html")
-	template.Render(c.Request.Context(), c.Writer)
+	if err := template.Render(c.Request.Context(), c.Writer); err != nil {
+		h.logger.Error("Failed to render results template", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to render template"})
+	}
 }
 
 func (h *Handler) getHealthStatus() *models.HealthCheck {

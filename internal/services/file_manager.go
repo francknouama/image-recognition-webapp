@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,14 +20,18 @@ type FileManager struct {
 }
 
 // NewFileManager creates a new file manager
-func NewFileManager(cfg *config.Config) *FileManager {
+func NewFileManager(cfg *config.Config) (*FileManager, error) {
 	tempDir := "./temp"
 	uploadsDir := "./uploads"
 	cleanupAge := 24 * time.Hour // Default: clean files older than 24 hours
 
 	// Create directories if they don't exist
-	os.MkdirAll(tempDir, 0755)
-	os.MkdirAll(uploadsDir, 0755)
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create uploads directory: %w", err)
+	}
 
 	return &FileManager{
 		config:     cfg,
@@ -34,7 +39,7 @@ func NewFileManager(cfg *config.Config) *FileManager {
 		tempDir:    tempDir,
 		uploadsDir: uploadsDir,
 		cleanupAge: cleanupAge,
-	}
+	}, nil
 }
 
 // SetCleanupAge sets the age threshold for cleanup
@@ -104,13 +109,10 @@ func (fm *FileManager) StartPeriodicCleanup(interval time.Duration) {
 	go func() {
 		defer ticker.Stop()
 		
-		for {
-			select {
-			case <-ticker.C:
-				fm.logger.Debug("Running periodic cleanup")
-				if err := fm.CleanupAll(); err != nil {
-					fm.logger.Errorf("Periodic cleanup failed: %v", err)
-				}
+		for range ticker.C {
+			fm.logger.Debug("Running periodic cleanup")
+			if err := fm.CleanupAll(); err != nil {
+				fm.logger.Errorf("Periodic cleanup failed: %v", err)
 			}
 		}
 	}()

@@ -62,7 +62,13 @@ deps:
 lint:
 	@echo "Running linter..."
 	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
-	golangci-lint run
+	golangci-lint run --timeout=5m
+
+# Lint code with fixes
+lint-fix:
+	@echo "Running linter with auto-fix..."
+	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
+	golangci-lint run --fix --timeout=5m
 
 # Format code
 fmt:

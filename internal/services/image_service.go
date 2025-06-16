@@ -49,7 +49,9 @@ func (s *ImageService) ValidateImage(file multipart.File, header *multipart.File
 	}
 
 	// Reset file pointer
-	file.Seek(0, 0)
+	if _, err := file.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek file: %w", err)
+	}
 
 	// Read first 512 bytes to detect actual file type
 	buffer := make([]byte, 512)
@@ -59,7 +61,9 @@ func (s *ImageService) ValidateImage(file multipart.File, header *multipart.File
 	}
 
 	// Reset file pointer again
-	file.Seek(0, 0)
+	if _, err := file.Seek(0, 0); err != nil {
+		return fmt.Errorf("failed to seek file: %w", err)
+	}
 
 	// Detect actual MIME type
 	detectedType := s.detectMimeType(buffer[:n])
