@@ -1,0 +1,68 @@
+/* Custom styles to complement PicoCSS */
+
+/* Image preview styling */
+figure img {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: var(--border-radius);
+}
+
+/* Progress bar enhancements */
+progress {
+  margin-bottom: 0.25rem;
+}
+
+/* Loading state for HTMX */
+[aria-busy="true"] {
+  pointer-events: none;
+}
+
+/* File input custom styling */
+input[type="file"] {
+  border: 2px dashed var(--muted-border-color);
+  padding: 2rem;
+  text-align: center;
+  border-radius: var(--border-radius);
+  transition: border-color 0.2s ease;
+}
+
+input[type="file"]:hover {
+  border-color: var(--primary);
+}
+
+/* Results table enhancements */
+table td progress {
+  width: 100%;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  
+  figure img {
+    max-height: 200px;
+  }
+}
+
+/* Alpine.js transitions for smooth UX */
+[x-cloak] {
+  display: none !important;
+}
+
+/* Enhanced file preview */
+figcaption {
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+/* Custom spacing for sections */
+section {
+  margin-bottom: 2rem;
+}
+
+/* Button group spacing */
+.grid button {
+  margin: 0;
+}

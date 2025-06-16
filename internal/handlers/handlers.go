@@ -3,11 +3,11 @@ package handlers
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/francknouama/image-recognition-webapp/internal/models"
 	"github.com/francknouama/image-recognition-webapp/internal/services"
+	"github.com/francknouama/image-recognition-webapp/web/templates"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
@@ -16,14 +16,16 @@ import (
 // Config holds handler configuration
 type Config struct {
 	ImageService      *services.ImageService
-	PredictionService *services.PredictionService
+	PredictionService services.PredictionServiceInterface
+	ModelService      *services.ModelService
 	RateLimiter      *rate.Limiter
 }
 
 // Handler contains all HTTP handlers
 type Handler struct {
 	imageService      *services.ImageService
-	predictionService *services.PredictionService
+	predictionService services.PredictionServiceInterface
+	modelService      *services.ModelService
 	rateLimiter      *rate.Limiter
 	logger           *logrus.Logger
 	startTime        time.Time
@@ -34,71 +36,45 @@ func New(config *Config) *Handler {
 	return &Handler{
 		imageService:      config.ImageService,
 		predictionService: config.PredictionService,
+		modelService:      config.ModelService,
 		rateLimiter:      config.RateLimiter,
 		logger:           logrus.New(),
 		startTime:        time.Now(),
 	}
 }
 
-// Index serves the main upload page
+// Index serves the main homepage
 func (h *Handler) Index(c *gin.Context) {
-	// For now, return a simple HTML response
-	// This will be replaced with TEMPL templates later
-	html := `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Recognition</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-</head>
-<body>
-    <main class="container">
-        <h1>Image Recognition</h1>
-        <p>Upload an image to get AI-powered classification results.</p>
-        
-        <div x-data="imageUpload()">
-            <form hx-post="/upload" hx-encoding="multipart/form-data" hx-target="#results" hx-indicator="#loading">
-                <input type="file" name="image" accept="image/*" @change="previewImage" required>
-                <div x-show="imagePreview" class="image-preview" style="margin: 1rem 0;">
-                    <img :src="imagePreview" alt="Preview" style="max-width: 300px; max-height: 300px;">
-                </div>
-                <button type="submit">Analyze Image</button>
-            </form>
-            
-            <div id="loading" class="htmx-indicator">
-                <p>Processing image...</p>
-            </div>
-            
-            <div id="results"></div>
-        </div>
-    </main>
+	h.logger.Info("Homepage accessed")
+	
+	// Get system stats for display
+	stats := models.ModelStats{
+		ModelsLoaded:      "2",
+		TotalPredictions:  "0",
+		AverageLatency:    "0",
+		SystemHealth:      "healthy",
+	}
+	
+	// Check actual model status
+	if h.modelService != nil {
+		modelStatus := h.modelService.GetModelStatus()
+		stats.ModelsLoaded = fmt.Sprintf("%d", len(modelStatus.Models))
+		if len(modelStatus.Models) == 0 {
+			stats.SystemHealth = "degraded"
+		}
+	}
+	
+	template := templates.Index(stats)
+	c.Header("Content-Type", "text/html")
+	template.Render(c.Request.Context(), c.Writer)
+}
 
-    <script>
-        function imageUpload() {
-            return {
-                imagePreview: null,
-                previewImage(event) {
-                    const file = event.target.files[0];
-                    if (file) {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            this.imagePreview = e.target.result;
-                        };
-                        reader.readAsDataURL(file);
-                    }
-                }
-            }
-        }
-    </script>
-</body>
-</html>`
+// UploadPage serves the upload page
+func (h *Handler) UploadPage(c *gin.Context) {
+	template := templates.Upload()
 	
 	c.Header("Content-Type", "text/html")
-	c.String(http.StatusOK, html)
+	template.Render(c.Request.Context(), c.Writer)
 }
 
 // Upload handles image upload and prediction
@@ -244,6 +220,15 @@ func (h *Handler) APIListModels(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// StatusPage serves the status page
+func (h *Handler) StatusPage(c *gin.Context) {
+	health := h.getHealthStatus()
+	template := templates.Status(*health)
+	
+	c.Header("Content-Type", "text/html")
+	template.Render(c.Request.Context(), c.Writer)
+}
+
 // HealthCheck provides basic health check
 func (h *Handler) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
@@ -255,7 +240,7 @@ func (h *Handler) HealthCheck(c *gin.Context) {
 
 // APIHealthCheck provides detailed health check
 func (h *Handler) APIHealthCheck(c *gin.Context) {
-	modelStatus := h.predictionService.GetModelStatus()
+	modelStatus := h.modelService.GetModelStatus()
 	
 	health := &models.HealthCheck{
 		Status:      "healthy",
@@ -301,15 +286,10 @@ func (h *Handler) respondError(c *gin.Context, statusCode int, errorCode, messag
 	}).Error("Request error")
 
 	if h.isHTMXRequest(c) {
-		// Return HTMX-compatible error response
-		html := fmt.Sprintf(`
-		<div class="error" style="color: red; padding: 1rem; border: 1px solid red; border-radius: 4px;">
-			<h3>Error</h3>
-			<p><strong>%s</strong></p>
-			<p>%s</p>
-		</div>`, message, details)
+		// Return HTMX-compatible error response using TEMPL
+		template := templates.UploadError(message)
 		c.Header("Content-Type", "text/html")
-		c.String(statusCode, html)
+		template.Render(c.Request.Context(), c.Writer)
 		return
 	}
 
@@ -317,64 +297,37 @@ func (h *Handler) respondError(c *gin.Context, statusCode int, errorCode, messag
 }
 
 func (h *Handler) renderPredictionResults(c *gin.Context, result *models.PredictionResult) {
-	// Build HTML for prediction results
-	var html strings.Builder
+	// Use TEMPL template for results
+	template := templates.UploadResults(*result)
 	
-	html.WriteString(`<div class="results" style="margin-top: 2rem;">`)
-	html.WriteString(`<h3>Prediction Results</h3>`)
-	
-	// Image metadata
-	html.WriteString(fmt.Sprintf(`
-		<div class="metadata" style="margin-bottom: 1rem;">
-			<p><strong>File:</strong> %s</p>
-			<p><strong>Size:</strong> %d bytes</p>
-			<p><strong>Dimensions:</strong> %dx%d</p>
-			<p><strong>Processing Time:</strong> %.2f ms</p>
-			<p><strong>Model:</strong> %s (v%s)</p>
-		</div>`,
-		result.Metadata.Filename,
-		result.Metadata.Size,
-		result.Metadata.Width,
-		result.Metadata.Height,
-		result.ProcessTime,
-		result.ModelInfo.Name,
-		result.ModelInfo.Version,
-	))
-
-	// Predictions
-	html.WriteString(`<div class="predictions">`)
-	html.WriteString(`<h4>Top Predictions:</h4>`)
-	html.WriteString(`<table>`)
-	html.WriteString(`<thead><tr><th>Class</th><th>Confidence</th><th>Probability</th></tr></thead>`)
-	html.WriteString(`<tbody>`)
-	
-	for _, pred := range result.Predictions {
-		confidencePercent := pred.Confidence * 100
-		probabilityPercent := pred.Probability * 100
-		html.WriteString(fmt.Sprintf(`
-			<tr>
-				<td>%s</td>
-				<td>%.2f%%</td>
-				<td>%.2f%%</td>
-			</tr>`,
-			pred.ClassName,
-			confidencePercent,
-			probabilityPercent,
-		))
-	}
-	
-	html.WriteString(`</tbody></table>`)
-	html.WriteString(`</div>`)
-	
-	// Action buttons
-	html.WriteString(`
-		<div style="margin-top: 1rem;">
-			<button onclick="location.reload()">Analyze Another Image</button>
-		</div>
-	`)
-	
-	html.WriteString(`</div>`)
-
 	c.Header("Content-Type", "text/html")
-	c.String(http.StatusOK, html.String())
+	template.Render(c.Request.Context(), c.Writer)
+}
+
+func (h *Handler) getHealthStatus() *models.HealthCheck {
+	modelStatus := h.modelService.GetModelStatus()
+	
+	health := &models.HealthCheck{
+		Status:      "healthy",
+		Timestamp:   time.Now(),
+		Uptime:      time.Since(h.startTime).String(),
+		Version:     "1.0.0",
+		Services: map[string]string{
+			"image_service":      "healthy",
+			"prediction_service": "healthy",
+			"model_service":      "healthy",
+		},
+		ModelStatus: modelStatus,
+	}
+
+	// Check if any models are unhealthy
+	for _, modelHealth := range modelStatus.Models {
+		if modelHealth.Status != "healthy" {
+			health.Status = "degraded"
+			health.Services["model_service"] = "degraded"
+			break
+		}
+	}
+
+	return health
 }

@@ -106,6 +106,8 @@ func (s *PredictionService) performInference(imageData []byte, model *LoadedMode
 		if confidence > 0.01 { // Only include predictions with >1% confidence
 			predictions = append(predictions, models.ClassificationResult{
 				ClassName:   class,
+				Label:       class,
+				Description: s.getClassDescription(class),
 				Confidence:  confidence,
 				Probability: confidence, // For now, confidence and probability are the same
 			})
@@ -164,6 +166,36 @@ func (s *PredictionService) normalizeProbabilities(predictions []models.Classifi
 			predictions[i].Probability /= total
 		}
 	}
+}
+
+// getClassDescription returns a description for a class name
+func (s *PredictionService) getClassDescription(className string) string {
+	descriptions := map[string]string{
+		"cat":        "A small domestic feline mammal",
+		"dog":        "A domestic canine companion animal",
+		"bird":       "A feathered, winged, bipedal animal",
+		"car":        "A four-wheeled motor vehicle",
+		"truck":      "A large motor vehicle for transporting goods",
+		"airplane":   "A powered flying vehicle with wings",
+		"boat":       "A watercraft designed for travel on water",
+		"train":      "A connected series of railway cars",
+		"bicycle":    "A two-wheeled vehicle powered by pedaling",
+		"motorcycle": "A two-wheeled motor vehicle",
+		"person":     "A human being",
+		"horse":      "A large domesticated ungulate mammal",
+		"sheep":      "A woolly ruminant mammal",
+		"cow":        "A large domesticated bovine animal",
+		"elephant":   "A large mammal with a trunk",
+		"bear":       "A large omnivorous mammal",
+		"zebra":      "A black and white striped equine",
+		"giraffe":    "A tall African mammal with a long neck",
+	}
+	
+	if desc, exists := descriptions[className]; exists {
+		return desc
+	}
+	
+	return fmt.Sprintf("A %s object or entity", className)
 }
 
 // BatchPredict performs batch prediction on multiple images

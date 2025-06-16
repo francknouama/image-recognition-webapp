@@ -24,6 +24,8 @@ type PredictionResult struct {
 // ClassificationResult represents a single classification prediction
 type ClassificationResult struct {
 	ClassName   string  `json:"class_name"`
+	Label       string  `json:"label"`
+	Description string  `json:"description"`
 	Confidence  float64 `json:"confidence"`
 	Probability float64 `json:"probability"`
 }
@@ -92,6 +94,14 @@ type ModelHealth struct {
 	Predictions int64     `json:"predictions"`
 	AvgTime     float64   `json:"avg_time_ms"`
 	Errors      int64     `json:"errors"`
+}
+
+// ModelStats represents statistics about the models and system
+type ModelStats struct {
+	ModelsLoaded      string `json:"models_loaded"`
+	TotalPredictions  string `json:"total_predictions"`
+	AverageLatency    string `json:"average_latency"`
+	SystemHealth      string `json:"system_health"`
 }
 
 // BatchPredictionRequest represents a request for batch image prediction

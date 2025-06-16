@@ -339,3 +339,41 @@ func (s *ModelService) GetModelInfo(modelID string) (*models.ModelInfo, error) {
 
 	return &model.Info, nil
 }
+
+// GetStats returns model statistics for the homepage
+func (s *ModelService) GetStats() models.ModelStats {
+	s.modelsMutex.RLock()
+	defer s.modelsMutex.RUnlock()
+
+	totalPredictions := int64(0)
+	totalTime := float64(0)
+	healthyModels := 0
+
+	for _, model := range s.models {
+		totalPredictions += model.Predictions
+		totalTime += model.TotalTime
+		if model.Health.Status == "healthy" {
+			healthyModels++
+		}
+	}
+
+	avgLatency := float64(0)
+	if totalPredictions > 0 {
+		avgLatency = totalTime / float64(totalPredictions)
+	}
+
+	systemHealth := "healthy"
+	if healthyModels < len(s.models) {
+		systemHealth = "degraded"
+	}
+	if healthyModels == 0 {
+		systemHealth = "unhealthy"
+	}
+
+	return models.ModelStats{
+		ModelsLoaded:      fmt.Sprintf("%d", len(s.models)),
+		TotalPredictions:  fmt.Sprintf("%d", totalPredictions),
+		AverageLatency:    fmt.Sprintf("%.1f", avgLatency),
+		SystemHealth:      systemHealth,
+	}
+}

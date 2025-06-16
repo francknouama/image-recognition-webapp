@@ -1,0 +1,111 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/francknouama/image-recognition-webapp/internal/models"
+)
+
+templ Status(health models.HealthCheck) {
+	@Layout("System Status") {
+		<hgroup>
+			<h1>System Status</h1>
+			<p>Current system health and performance metrics</p>
+		</hgroup>
+		
+		<section>
+			<div class="grid">
+				<article>
+					<header>Overall Status</header>
+					<h2>
+						if health.Status == "healthy" {
+							🟢 Healthy
+						} else if health.Status == "degraded" {
+							🟡 Degraded
+						} else {
+							🔴 Unhealthy
+						}
+					</h2>
+				</article>
+				<article>
+					<header>Uptime</header>
+					<h3>{ health.Uptime }</h3>
+				</article>
+				<article>
+					<header>Version</header>
+					<h3>{ health.Version }</h3>
+				</article>
+				<article>
+					<header>Last Check</header>
+					<h3>{ health.Timestamp.Format("15:04:05") }</h3>
+				</article>
+			</div>
+		</section>
+
+		<section>
+			<h2>Services</h2>
+			<table>
+				<thead>
+					<tr>
+						<th>Service</th>
+						<th>Status</th>
+					</tr>
+				</thead>
+				<tbody>
+					for serviceName, status := range health.Services {
+						<tr>
+							<td>{ serviceName }</td>
+							<td>
+								if status == "healthy" {
+									🟢 Healthy
+								} else if status == "degraded" {
+									🟡 Degraded
+								} else {
+									🔴 Unhealthy
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</section>
+
+		<section>
+			<h2>Models</h2>
+			<table>
+				<thead>
+					<tr>
+						<th>Model ID</th>
+						<th>Status</th>
+						<th>Predictions</th>
+						<th>Avg Time</th>
+						<th>Last Used</th>
+					</tr>
+				</thead>
+				<tbody>
+					for modelID, model := range health.ModelStatus.Models {
+						<tr>
+							<td><strong>{ modelID }</strong></td>
+							<td>
+								if model.Status == "healthy" {
+									🟢 Ready
+								} else {
+									🔴 Error
+								}
+							</td>
+							<td>{ fmt.Sprintf("%d", model.Predictions) }</td>
+							<td>{ fmt.Sprintf("%.1fms", model.AvgTime) }</td>
+							<td>{ model.LastUsed.Format("15:04:05") }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</section>
+
+		<section>
+			<div class="grid">
+				<a href="/" role="button" class="secondary">Back to Home</a>
+				<button onclick="location.reload()" role="button">Refresh Status</button>
+			</div>
+		</section>
+	}
+}

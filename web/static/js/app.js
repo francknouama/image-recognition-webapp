@@ -4,13 +4,13 @@
 document.addEventListener('alpine:init', () => {
     // Image upload component
     Alpine.data('imageUpload', () => ({
-        imagePreview: null,
-        isDragging: false,
-        isUploading: false,
-        progress: 0,
+        selectedFile: null,
+        previewUrl: null,
+        loading: false,
+        dragOver: false,
         
         init() {
-            this.setupDragAndDrop();
+            console.log('Image upload component initialized');
         },
         
         setupDragAndDrop() {
@@ -44,36 +44,46 @@ document.addEventListener('alpine:init', () => {
             }
         },
         
-        handleFileSelect(file) {
+        handleFileSelect(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            
             // Validate file type
             if (!file.type.startsWith('image/')) {
-                this.showError('Please select a valid image file.');
+                alert('Please select a valid image file.');
                 return;
             }
             
             // Validate file size (10MB limit)
             if (file.size > 10 * 1024 * 1024) {
-                this.showError('File size must be less than 10MB.');
+                alert('File size must be less than 10MB.');
                 return;
             }
+            
+            this.selectedFile = file;
             
             // Create preview
             const reader = new FileReader();
             reader.onload = (e) => {
-                this.imagePreview = e.target.result;
+                this.previewUrl = e.target.result;
             };
             reader.readAsDataURL(file);
-            
-            // Update file input
-            const fileInput = this.$refs.fileInput;
-            const dataTransfer = new DataTransfer();
-            dataTransfer.items.add(file);
-            fileInput.files = dataTransfer.files;
         },
         
-        clearPreview() {
-            this.imagePreview = null;
+        clearSelection() {
+            this.selectedFile = null;
+            this.previewUrl = null;
             this.$refs.fileInput.value = '';
+        },
+        
+        formatFileSize(bytes) {
+            if (!bytes) return '0 Bytes';
+            
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         },
         
         showError(message) {

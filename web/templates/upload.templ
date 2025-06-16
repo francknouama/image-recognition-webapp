@@ -1,0 +1,129 @@
+package templates
+
+import "github.com/francknouama/image-recognition-webapp/internal/models"
+
+templ Upload() {
+	@Layout("Upload Image") {
+		<hgroup>
+			<h1>Upload Image for Recognition</h1>
+			<p>Select an image file to get AI-powered classification results</p>
+		</hgroup>
+
+		<article>
+			<form 
+				id="upload-form"
+				hx-post="/upload" 
+				hx-target="#results" 
+				hx-encoding="multipart/form-data"
+				hx-indicator="#loading"
+				x-data="imageUpload()"
+			>
+				<fieldset>
+					<label for="image">
+						Image File
+						<input 
+							type="file" 
+							id="image"
+							name="image" 
+							accept="image/*" 
+							required
+							x-ref="fileInput"
+							@change="handleFileSelect"
+						/>
+						<small>Supports JPEG, PNG, WebP up to 10MB</small>
+					</label>
+
+					<div x-show="selectedFile">
+						<figure>
+							<img :src="previewUrl" alt="Preview" x-show="previewUrl"/>
+							<figcaption>
+								<strong x-text="selectedFile?.name"></strong>
+								<br/>
+								<small x-text="formatFileSize(selectedFile?.size)"></small>
+							</figcaption>
+						</figure>
+					</div>
+				</fieldset>
+
+				<div class="grid">
+					<button 
+						type="submit" 
+						:disabled="!selectedFile || loading"
+						x-text="loading ? 'Processing...' : 'Analyze Image'"
+					></button>
+					<button 
+						type="button" 
+						@click="clearSelection"
+						class="secondary"
+						:disabled="!selectedFile || loading"
+					>
+						Clear
+					</button>
+				</div>
+			</form>
+
+			<div id="loading" style="display: none;">
+				<article aria-busy="true">
+					<p>Analyzing your image...</p>
+				</article>
+			</div>
+
+			<div id="results">
+				<!-- Results will be inserted here by HTMX -->
+			</div>
+		</article>
+	}
+}
+
+templ UploadResults(result models.PredictionResult) {
+	<article>
+		<header>
+			<h3>🎯 Analysis Results</h3>
+			<small>Processed in { string(rune(int(result.ProcessTime))) }ms</small>
+		</header>
+
+		<table>
+			<thead>
+				<tr>
+					<th>Prediction</th>
+					<th>Confidence</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, pred := range result.Predictions {
+					<tr>
+						<td>
+							<strong>{ pred.Label }</strong>
+							<br/>
+							<small>{ pred.Description }</small>
+						</td>
+						<td>
+							<progress value={ string(rune(int(pred.Confidence*100))) } max="100">
+								{ string(rune(int(pred.Confidence*100))) }%
+							</progress>
+							<small>{ string(rune(int(pred.Confidence*100))) }%</small>
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+
+		<footer>
+			<div class="grid">
+				<button 
+					type="button" 
+					onclick="document.getElementById('upload-form').reset(); document.getElementById('results').innerHTML = '';"
+					class="secondary"
+				>
+					Upload Another
+				</button>
+				<button 
+					type="button"
+					onclick="downloadResults()"
+				>
+					Download Results
+				</button>
+			</div>
+		</footer>
+	</article>
+}

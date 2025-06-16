@@ -1,0 +1,40 @@
+package templates
+
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+		<title>{ title } - Image Recognition</title>
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"/>
+		<link rel="stylesheet" href="/static/css/custom.css"/>
+		<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+		<script src="https://unpkg.com/alpinejs@3.13.5/dist/cdn.min.js" defer></script>
+	</head>
+	<body>
+		<header class="container">
+			<nav>
+				<ul>
+					<li><strong><a href="/">🔍 Image Recognition</a></strong></li>
+				</ul>
+				<ul>
+					<li><a href="/">Home</a></li>
+					<li><a href="/upload">Upload</a></li>
+					<li><a href="/status">Status</a></li>
+				</ul>
+			</nav>
+		</header>
+		
+		<main class="container">
+			{ children... }
+		</main>
+		
+		<footer class="container">
+			<small>&copy; 2024 Image Recognition Platform. Powered by TensorFlow & Go.</small>
+		</footer>
+		
+		<script src="/static/js/app.js"></script>
+	</body>
+	</html>
+}

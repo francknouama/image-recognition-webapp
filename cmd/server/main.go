@@ -34,12 +34,31 @@ func main() {
 	// Initialize services
 	imageService := services.NewImageService(cfg)
 	modelService := services.NewModelService(cfg)
-	predictionService := services.NewPredictionService(modelService, imageService)
+	tensorFlowService := services.NewTensorFlowService(cfg)
+	fileManager := services.NewFileManager(cfg)
+	
+	// Ensure all directories exist
+	if err := fileManager.EnsureDirectories(); err != nil {
+		logrus.Errorf("Failed to create directories: %v", err)
+	}
+	
+	// Start periodic cleanup (every hour)
+	fileManager.SetCleanupAge(2 * time.Hour) // Clean files older than 2 hours in development
+	fileManager.StartPeriodicCleanup(1 * time.Hour)
+	
+	// Use enhanced prediction service with TensorFlow support
+	predictionService := services.NewEnhancedPredictionService(modelService, imageService, tensorFlowService)
+	
+	// Load a mock TensorFlow model for demonstration
+	if err := loadDemoTensorFlowModel(tensorFlowService, cfg); err != nil {
+		logrus.Warnf("Failed to load demo TensorFlow model: %v", err)
+	}
 
 	// Initialize handlers
 	handlerConfig := &handlers.Config{
 		ImageService:      imageService,
 		PredictionService: predictionService,
+		ModelService:      modelService,
 		RateLimiter:      rate.NewLimiter(rate.Limit(cfg.Server.RateLimit), cfg.Server.RateBurst),
 	}
 	
@@ -134,8 +153,10 @@ func setupRouter(cfg *config.Config, h *handlers.Handler) http.Handler {
 
 	// Main routes
 	router.GET("/", h.Index)
+	router.GET("/upload", h.UploadPage)
 	router.POST("/upload", h.Upload)
 	router.GET("/results/:id", h.GetResults)
+	router.GET("/status", h.StatusPage)
 
 	// API routes
 	api := router.Group("/api")
@@ -146,4 +167,16 @@ func setupRouter(cfg *config.Config, h *handlers.Handler) http.Handler {
 	}
 
 	return c.Handler(router)
+}
+
+// loadDemoTensorFlowModel loads a demo TensorFlow model for testing
+func loadDemoTensorFlowModel(tfService *services.MockTensorFlowService, cfg *config.Config) error {
+	// Try to load from the models directory if it exists
+	modelPath := cfg.Model.Path
+	if modelPath == "" {
+		modelPath = "./models/demo"
+	}
+	
+	// Load demo model (this will create a mock model since we don't have real TensorFlow)
+	return tfService.LoadModel(modelPath, "imagenet_demo")
 }

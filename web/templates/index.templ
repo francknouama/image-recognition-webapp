@@ -1,0 +1,73 @@
+package templates
+
+import "github.com/francknouama/image-recognition-webapp/internal/models"
+
+templ Index(stats models.ModelStats) {
+	@Layout("Home") {
+		<hgroup>
+			<h1>AI-Powered Image Recognition</h1>
+			<p>Upload any image and get instant AI-powered classification results with our advanced machine learning models.</p>
+		</hgroup>
+		
+		<section>
+			<div class="grid">
+				<div>
+					<a href="/upload" role="button">Get Started</a>
+				</div>
+				<div>
+					<a href="#features" role="button" class="secondary">Learn More</a>
+				</div>
+			</div>
+		</section>
+
+		<section id="features">
+			<h2>Features</h2>
+			<div class="grid">
+				<article>
+					<header>🎯 High Accuracy</header>
+					<p>State-of-the-art deep learning models trained on millions of images for precise classification.</p>
+				</article>
+				<article>
+					<header>⚡ Fast Processing</header>
+					<p>Get results in seconds with our optimized inference pipeline and efficient processing.</p>
+				</article>
+				<article>
+					<header>🔒 Privacy First</header>
+					<p>Your images are processed securely and deleted after analysis. No data retention.</p>
+				</article>
+				<article>
+					<header>🌐 Multiple Formats</header>
+					<p>Support for JPEG, PNG, WebP and other popular image formats up to 10MB.</p>
+				</article>
+			</div>
+		</section>
+
+		<section>
+			<h2>System Status</h2>
+			<div class="grid">
+				<article>
+					<header>Models Loaded</header>
+					<h3>{ stats.ModelsLoaded }</h3>
+				</article>
+				<article>
+					<header>Predictions Made</header>
+					<h3>{ stats.TotalPredictions }</h3>
+				</article>
+				<article>
+					<header>Avg Response Time</header>
+					<h3>{ stats.AverageLatency }ms</h3>
+				</article>
+				<article>
+					<header>System Status</header>
+					<h3>
+						if stats.SystemHealth == "healthy" {
+							🟢 Online
+						} else {
+							🔴 Offline
+						}
+					</h3>
+				</article>
+			</div>
+		</section>
+	}
+}

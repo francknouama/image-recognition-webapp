@@ -1,0 +1,41 @@
+package templates
+
+templ Error(title string, message string, statusCode int) {
+	@Layout(title) {
+		<article>
+			<header>
+				<h1>
+					if statusCode == 404 {
+						🔍 { title }
+					} else if statusCode >= 500 {
+						⚠️ { title }
+					} else {
+						❌ { title }
+					}
+				</h1>
+			</header>
+			<p>{ message }</p>
+			<footer>
+				<div class="grid">
+					<a href="/" role="button">Go Home</a>
+					<button onclick="history.back()" class="secondary">Go Back</button>
+				</div>
+			</footer>
+		</article>
+	}
+}
+
+templ UploadError(message string) {
+	<article>
+		<header>❌ Upload Error</header>
+		<p>{ message }</p>
+		<footer>
+			<button 
+				onclick="document.getElementById('results').innerHTML = ''"
+				class="secondary"
+			>
+				Try Again
+			</button>
+		</footer>
+	</article>
+}
