@@ -5,6 +5,13 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_to_app_platform:
+        description: 'Deploy to App Platform'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -120,7 +127,7 @@ jobs:
   deploy-app-platform:
     runs-on: ubuntu-latest
     needs: [test, docker]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.deploy_to_app_platform)
     
     steps:
     - name: Checkout code
