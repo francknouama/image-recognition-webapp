@@ -126,12 +126,12 @@ func (s *ImageService) SaveTempFile(data []byte, filename string) (string, error
 	tempPath := filepath.Join(s.config.Upload.TempDir, name)
 
 	// Create temp directory if it doesn't exist
-	if err := os.MkdirAll(s.config.Upload.TempDir, 0755); err != nil {
+	if err := os.MkdirAll(s.config.Upload.TempDir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
 	// Write file
-	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+	if err := os.WriteFile(tempPath, data, 0600); err != nil {
 		return "", fmt.Errorf("failed to write temp file: %w", err)
 	}
 

@@ -116,7 +116,7 @@ func setupLogging(cfg *config.Config) {
 	logrus.SetLevel(level)
 
 	if cfg.Logging.Output == "file" && cfg.Logging.File != "" {
-		file, err := os.OpenFile(cfg.Logging.File, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		file, err := os.OpenFile(cfg.Logging.File, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			logrus.Warn("Failed to open log file, using stdout")
 		} else {

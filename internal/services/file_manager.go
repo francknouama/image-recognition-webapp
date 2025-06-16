@@ -26,10 +26,10 @@ func NewFileManager(cfg *config.Config) (*FileManager, error) {
 	cleanupAge := 24 * time.Hour // Default: clean files older than 24 hours
 
 	// Create directories if they don't exist
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
+	if err := os.MkdirAll(tempDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
-	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
+	if err := os.MkdirAll(uploadsDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create uploads directory: %w", err)
 	}
 
@@ -147,7 +147,7 @@ func (fm *FileManager) EnsureDirectories() error {
 	}
 
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0750); err != nil {
 			return err
 		}
 		fm.logger.Debugf("Ensured directory exists: %s", dir)

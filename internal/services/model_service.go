@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,7 +136,19 @@ func (s *ModelService) loadModel(modelID string) error {
 
 // loadModelMetadata loads model metadata from a JSON file
 func (s *ModelService) loadModelMetadata(modelDir string) (*models.ModelInfo, error) {
-	metadataPath := filepath.Join(modelDir, "metadata.json")
+	// Ensure modelDir is an absolute path and clean it
+	absModelDir, err := filepath.Abs(modelDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+	
+	// Clean the path to prevent directory traversal
+	metadataPath := filepath.Clean(filepath.Join(absModelDir, "metadata.json"))
+	
+	// Verify the metadata file is within the model directory
+	if !strings.HasPrefix(metadataPath, absModelDir) {
+		return nil, fmt.Errorf("invalid model directory path")
+	}
 	
 	data, err := os.ReadFile(metadataPath)
 	if err != nil {
